@@ -7,11 +7,17 @@ class PointAndDistance(NamedTuple):
     idx: int
     distance: float
 
-def euclidian_dist(
+def euclidean_distance(
     x: list[float],
     y: list[float]
 ) -> float:
     return math.sqrt(sum((a - b) ** 2 for a, b in zip(x, y)))
+
+def manhattan_distance(
+    x: list[float],
+    y: list[float]
+) -> float:
+    return sum(abs(a - b) for a, b in zip(x, y))
 
 # returns indexes of k nearest
 def find_k_nearest(
@@ -21,7 +27,7 @@ def find_k_nearest(
 ) -> list[int]:
     k_nearest: list[PointAndDistance] = []
     for i, (point, _label) in enumerate(training_data):
-        dist = euclidian_dist(point, query)
+        dist = euclidean_distance(point, query)
 
         if len(k_nearest) < k:
             k_nearest.append(PointAndDistance(i, dist))
