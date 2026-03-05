@@ -21,6 +21,14 @@
 
 def load_csv(filepath: str) -> list[tuple[list[float], str]]:
     """Load a CSV file and return a list of (features, label) tuples."""
-    # TODO: implement this
-    # Hint: open the file, loop over lines, split each line, convert features to float
-    pass
+    data = []
+    with open(filepath) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(",")
+            features = [float(x) for x in parts[:-1]]
+            label = parts[-1]
+            data.append((features, label))
+    return data

@@ -37,8 +37,7 @@ def _dot(a: list[float], b: list[float]) -> float:
 
     a · b = Σ(a_i * b_i)
     """
-    # TODO: implement this
-    pass
+    return sum([ai * bi for ai, bi in zip(a, b)])
 
 
 # ============================================================
@@ -64,8 +63,10 @@ def _make_split_hyperplane(
     Returns:
         (normal, offset)
     """
-    # TODO: implement this
-    pass
+    normal = [bi - ai for ai, bi in zip(point_a, point_b)]
+    midpoint  = [(ai + bi)/2 for ai, bi in zip(point_a, point_b)]
+    offset = _dot(normal, midpoint)
+    return  normal, offset
 
 
 class AnnoyIndex:
@@ -89,8 +90,28 @@ class AnnoyIndex:
     # ============================================================
     def __init__(self, n_trees: int = 10, max_leaf_size: int = 10) -> None:
         """Store hyperparameters and initialize an empty forest."""
-        # TODO: implement this
-        pass
+        self.n_trees = n_trees
+        self.max_leaf_size = max_leaf_size
+        self._forest: list[Node] = []
+        self._training_data: list[tuple[list[float], str]] = []
+
+    def _split_over_hyperplane(
+        self,
+        indices: list[int],
+        hyperplane: tuple[list[float], float]
+    ) -> tuple[list[int], list[int]]:
+        normal, offset = hyperplane
+        left: list[int] = []
+        right: list[int] = []
+        for idx in indices:
+            point = self._training_data[idx][0]
+            is_left = (_dot(normal, point) - offset) <= 0
+            if is_left:
+                left.append(idx)
+            else:
+                right.append(idx)
+        return left, right
+
 
     # ============================================================
     # STEP 4: Build one tree
@@ -113,8 +134,20 @@ class AnnoyIndex:
         Returns:
             Root Node of this subtree.
         """
-        # TODO: implement this
-        pass
+        if (len(indices) <= self.max_leaf_size):
+            return Node(is_leaf=True, indices = indices)
+
+        idx_a, idx_b = random.sample(indices, 2)
+        point_a, point_b = self._training_data[idx_a][0], self._training_data[idx_b][0]
+        hyperplane = _make_split_hyperplane(point_a, point_b)
+        left_idxs, right_idxs = self._split_over_hyperplane(indices, hyperplane)
+        if len(left_idxs) == 0 or len(right_idxs) == 0:
+            # degenerate split
+            return Node(is_leaf=True, indices = indices)
+        left = self._build_tree(left_idxs)
+        right = self._build_tree(right_idxs)
+        normal, offset = hyperplane
+        return Node(is_leaf=False, left=left, right=right, normal=normal, offset=offset)
 
     # ============================================================
     # STEP 5: Build the forest
@@ -124,8 +157,11 @@ class AnnoyIndex:
 
         Each tree sees all points but makes different random splits.
         """
-        # TODO: implement this
-        pass
+        self._training_data = training_data
+
+        all_idxs = list(range(len(training_data)))
+        for _ in range(self.n_trees):
+            self._forest.append(self._build_tree(all_idxs))
 
     # ============================================================
     # STEP 6: Query one tree
@@ -138,8 +174,16 @@ class AnnoyIndex:
 
         Returns the indices stored in the reached leaf.
         """
-        # TODO: implement this
-        pass
+        if (node.is_leaf):
+            return node.indices
+        assert node.left # Node dataclass needs better typing?
+        assert node.right
+        is_left = (_dot(node.normal, query) - node.offset) <= 0
+        if (is_left):
+            return self._query_tree(node.left, query)
+        else:
+            return self._query_tree(node.right, query)
+        
 
     # ============================================================
     # STEP 7: Query the forest
@@ -151,8 +195,11 @@ class AnnoyIndex:
         2. Rank candidates by true distance to query.
         3. Return the top k.
         """
-        # TODO: implement this
-        pass
+        point_idxs: list[int] = []
+        for tree in self._forest:
+            point_idxs.extend(self._query_tree(tree, query))
+        return list(set(point_idxs)) # hacky but meh
+
 
     # ============================================================
     # STEP 8: Evaluate
@@ -167,5 +214,5 @@ class AnnoyIndex:
 
         Returns accuracy in [0.0, 1.0].
         """
-        # TODO: implement this
-        pass
+        correct = sum(1 for features, label in test_data if classify(self.query(features, k), self._training_data) == label)
+        return correct / len(test_data)
