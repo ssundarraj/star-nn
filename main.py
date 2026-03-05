@@ -8,8 +8,10 @@
 #
 # Run with: python main.py
 
+import time
 from knn import evaluate
 from csv_loader import load_csv
+from annoy import AnnoyIndex
 
 data = load_csv("data/iris.csv")
 
@@ -31,3 +33,25 @@ print(f"Test set:     {len(test)} points")
 for k in [1, 3, 5, 7]:
     accuracy = evaluate(test, train, k)
     print(f"K={k}  accuracy={accuracy * 100:.1f}%")
+
+# --- Annoy vs Brute-Force KNN ---
+print("\n--- Annoy vs Brute-Force KNN ---")
+
+for n_trees in [5, 10, 20]:
+    t0 = time.perf_counter()
+    index = AnnoyIndex(n_trees=n_trees, max_leaf_size=10)
+    index.build(train)
+    build_time = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    acc = index.evaluate(test, k=5)
+    query_time = time.perf_counter() - t0
+
+    print(f"  n_trees={n_trees:2d}  accuracy={acc * 100:.1f}%  "
+          f"build={build_time * 1000:.1f}ms  query={query_time * 1000:.1f}ms")
+
+t0 = time.perf_counter()
+knn_acc = evaluate(test, train, k=5)
+knn_time = time.perf_counter() - t0
+print(f"  KNN (brute)  accuracy={knn_acc * 100:.1f}%  "
+      f"query={knn_time * 1000:.1f}ms")
