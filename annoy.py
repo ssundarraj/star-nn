@@ -195,10 +195,12 @@ class AnnoyIndex:
         2. Rank candidates by true distance to query.
         3. Return the top k.
         """
-        point_idxs: list[int] = []
+        candidate_set: set[int] = set()
         for tree in self._forest:
-            point_idxs.extend(self._query_tree(tree, query))
-        return list(set(point_idxs)) # hacky but meh
+            candidate_set.update(self._query_tree(tree, query))
+        ranked = sorted(candidate_set, key=lambda i: euclidean_distance(self._training_data[i][0], query))
+        return ranked[:k]
+
 
 
     # ============================================================
