@@ -12,6 +12,7 @@ import time
 from knn import evaluate
 from csv_loader import load_csv
 from annoy import AnnoyIndex
+from hnsw import HNSWIndex
 
 data = load_csv("data/iris.csv")
 
@@ -55,3 +56,19 @@ knn_acc = evaluate(test, train, k=5)
 knn_time = time.perf_counter() - t0
 print(f"  KNN (brute)  accuracy={knn_acc * 100:.1f}%  "
       f"query={knn_time * 1000:.1f}ms")
+
+# --- HNSW ---
+print("\n--- HNSW ---")
+
+for M, ef_s in [(4, 10), (8, 20), (16, 50)]:
+    t0 = time.perf_counter()
+    hnsw = HNSWIndex(M=M, ef_construction=200, ef_search=ef_s)
+    hnsw.build(train)
+    build_time = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    acc = hnsw.evaluate(test, k=5)
+    query_time = time.perf_counter() - t0
+
+    print(f"  M={M:2d} ef_search={ef_s:2d}  accuracy={acc * 100:.1f}%  "
+          f"build={build_time * 1000:.1f}ms  query={query_time * 1000:.1f}ms")
