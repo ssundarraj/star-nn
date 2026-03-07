@@ -1,11 +1,7 @@
 from collections import defaultdict
+import heapq
 import math
-from typing import NamedTuple
 from functools import reduce
-
-class PointAndDistance(NamedTuple):
-    idx: int
-    distance: float
 
 # [claude review] zip silently truncates if lists are different lengths.
 # Fine if you trust your data, but worth knowing.
@@ -24,42 +20,23 @@ def manhattan_distance(
 
 # returns indexes of k nearest
 #
-# [claude review] Bug: you're sorting the entire list on every iteration.
-# k_nearest[-1] is always the farthest of your current candidates, which
-# is correct for the comparison -- but you're doing an O(k log k) sort per
-# data point, making the whole thing O(n k log k). Not wrong, but wasteful.
-#
-# Your approach is heading toward an O(n k) selection algorithm (once you
-# replace sorted with insertion sort), which is better for large n -- but
-# the sort-per-iteration negates that.
-#
-# Simpler approach: compute all distances, sort once, slice:
-#
-#   def find_k_nearest(query, training_data, k):
-#       distances = [(euclidean_distance(point, query), i)
-#                    for i, (point, _) in enumerate(training_data)]
-#       distances.sort()
-#       return [i for _, i in distances[:k]]
-#
-# Same O(n log n) but clearer.
+# Uses a max-heap of size k. We push (-dist, idx) so the farthest
+# candidate is always at the top. When a closer point is found,
+# pop the farthest and push the new one. O(n log k) total.
 def find_k_nearest(
     query: list[float],
     training_data: list[tuple[list[float], str]],
     k: int,
 ) -> list[int]:
-    k_nearest: list[PointAndDistance] = []
+    heap: list[tuple[float, int]] = []  # max-heap via negated distances
     for i, (point, _label) in enumerate(training_data):
         dist = euclidean_distance(point, query)
+        if len(heap) < k:
+            heapq.heappush(heap, (-dist, i))
+        elif dist < -heap[0][0]:
+            heapq.heapreplace(heap, (-dist, i))
 
-        if len(k_nearest) < k:
-            k_nearest.append(PointAndDistance(i, dist))
-        elif k_nearest[-1].distance > dist:
-            k_nearest[-1] = PointAndDistance(i, dist)
-
-        # TODO: insertion sort
-        k_nearest = sorted(k_nearest)
-
-    return [point.idx for point in k_nearest]
+    return [i for _, i in sorted(heap, reverse=True)]
 
 # [claude review] Works but reduce with a mutating accumulator is
 # unidiomatic Python. A loop or Counter is more natural:
