@@ -77,7 +77,7 @@ try:
     check(len(results) > 0, "search_layer returns results")
     check(results[0][1] in [0, 1], "closest to [0.5, 0] is node 0 or 1")
 
-    neighbors = idx._select_neighbors([0.5, 0.0], results, M=2)
+    neighbors = idx._select_neighbors(results, M=2)
     check(len(neighbors) == 2, "select_neighbors returns M neighbors")
     check(set(neighbors) == {0, 1}, "selects the 2 closest nodes")
 except TypeError as e:

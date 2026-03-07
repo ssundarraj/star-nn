@@ -47,8 +47,13 @@ class HNSWIndex:
             - self._entry_point: index of the entry node (None until first insert)
             - self._max_level: current highest layer (0 until points are added)
         """
-        # TODO: implement this
-        pass
+        self.M = M
+        self.ef_construction = ef_construction
+        self.ef_search = ef_search
+        self._data: list[tuple[list[float], str]] = [] # list[(vector, label)]
+        self._layers: list[dict[int, list[int]]] = [] # list of dict: point -> adj points
+        self._entry_point: int | None = None
+        self._max_level: int = 0
 
     # ============================================================
     # STEP 2: Random level assignment
@@ -66,8 +71,7 @@ class HNSWIndex:
         This gives an exponential distribution — most nodes get level 0,
         few get level 1, very few get level 2, etc.
         """
-        # TODO: implement this
-        pass
+        return int(-math.log(max(random.random(), 1e-10)) / math.log(self.M))
 
     # ============================================================
     # STEP 3: Search within one layer (beam search)
@@ -114,15 +118,40 @@ class HNSWIndex:
         Returns:
             List of (distance, node_id) tuples, sorted closest first.
         """
-        # TODO: implement this
-        pass
+        candidates : list[tuple[float, int]] = []
+        results : list[tuple[float, int]] = []
+        visited: set[int] = set()
+        for p in entry_points:
+            d = euclidean_distance(query, self._data[p][0])
+            heapq.heappush(candidates, (d, p))
+            heapq.heappush(results, (-d, p))
+            visited.add(p)
+
+        while len(candidates):
+            c = heapq.heappop(candidates)
+            c_dist = c[0]
+            f = results[0]
+            f_dist = -f[0] # we push -dist for maxheap
+            if c_dist > f_dist and len(results) >= ef:
+                break
+            adj_nodes = self._layers[layer][c[1]]
+            for adj_node in adj_nodes:
+                if adj_node in visited:
+                    continue
+                visited.add(adj_node)
+                adj_node_dist = euclidean_distance(query, self._data[adj_node][0])
+                if len(results) < ef or adj_node_dist < f_dist:
+                    heapq.heappush(candidates, (adj_node_dist, adj_node))
+                    heapq.heappush(results, (-adj_node_dist, adj_node))
+                if len(results) > ef:
+                    heapq.heappop(results)
+        return sorted([(-nd, p) for nd, p in results])
 
     # ============================================================
     # STEP 4: Select neighbors
     # ============================================================
     def _select_neighbors(
         self,
-        query: list[float],
         candidates: list[tuple[float, int]],
         M: int,
     ) -> list[int]:
@@ -138,8 +167,7 @@ class HNSWIndex:
         Returns:
             List of at most M node indices.
         """
-        # TODO: implement this
-        pass
+        return [p for (_d, p) in sorted(candidates)][:M]
 
     # ============================================================
     # STEP 5: Insert a single point
@@ -170,7 +198,46 @@ class HNSWIndex:
             features: The point's feature vector.
             label:    The point's class label.
         """
-        # TODO: implement this
+        node_layer = self._random_level()
+        self._data.append((features, label))
+        node_idx = len(self._data) - 1
+
+        while len(self._layers) < node_layer + 1:
+              self._layers.append({})
+        for layer_index in range(node_layer + 1):
+            self._layers[layer_index][node_idx] = []
+
+        if self._entry_point is None:
+            self._entry_point = node_idx
+            self._max_level = node_layer
+            return 
+
+        cur_layer = self._max_level 
+        candidates = [(0.0, self._entry_point)] # arbitrary dist
+        
+        while cur_layer >= 0:
+            ef = 1 if cur_layer > node_layer else self.ef_construction
+            candidate_idxs = [c for _d, c in candidates]
+            candidates = self._search_layer(
+                features, candidate_idxs, ef=ef, layer=cur_layer)
+            neighbors = self._select_neighbors(candidates, self.M)
+            if node_layer >= cur_layer:
+                for n in neighbors:
+                    self._layers[cur_layer][node_idx].append(n)
+                    self._layers[cur_layer][n].append(node_idx)
+                    if len(self._layers[cur_layer][n]) > self.M:
+                        n_features = self._data[n][0]
+                        scored = sorted(
+                            self._layers[cur_layer][n],
+                            key=lambda nb: euclidean_distance(
+                                n_features, self._data[nb][0]))
+                        self._layers[cur_layer][n] = scored[:self.M]
+            cur_layer -= 1
+
+
+        if node_layer > self._max_level:
+            self._entry_point = node_idx
+            self._max_level = node_layer
         pass
 
     # ============================================================
@@ -182,8 +249,8 @@ class HNSWIndex:
         Args:
             training_data: The dataset as (features, label) tuples.
         """
-        # TODO: implement this
-        pass
+        for features, label in training_data:
+            self.insert(features, label)
 
     # ============================================================
     # STEP 7: Query
@@ -206,8 +273,23 @@ class HNSWIndex:
         Returns:
             List of at most k indices into self._data.
         """
-        # TODO: implement this
-        pass
+        cur_layer = self._max_level
+        if self._entry_point is None:
+            return []
+        entry_point : int = self._entry_point
+        neighbors : list[int] = []
+        while cur_layer >= 0:
+            ef = 1 if cur_layer > 0 else max(self.ef_search, k)
+            candidates = self._search_layer(
+                query, [entry_point], ef=ef, layer=cur_layer)
+            neighbors = self._select_neighbors(candidates, k)
+            entry_point = neighbors[0]
+            cur_layer -= 1
+
+        return neighbors
+
+
+
 
     # ============================================================
     # STEP 8: Evaluate
@@ -222,5 +304,5 @@ class HNSWIndex:
 
         Returns accuracy in [0.0, 1.0].
         """
-        # TODO: implement this
-        pass
+        correct = sum(1 for features, label in test_data if classify(self.query(features, k), self._data) == label)
+        return correct / len(test_data)
