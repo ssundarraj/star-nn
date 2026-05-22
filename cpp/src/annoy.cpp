@@ -144,6 +144,20 @@ std::vector<std::size_t> AnnoyIndex::query(const Vector &query,
 
   std::vector<std::size_t> candidates(candidate_set.begin(),
                                       candidate_set.end());
+  std::vector<std::pair<double, std::size_t>> scored_candidates;
+
+  for (const auto c : candidates) {
+    scored_candidates.push_back(
+        {squared_euclidean_distance(training_data_[c].features, query), c});
+  }
+
+  std::sort(scored_candidates.begin(), scored_candidates.end());
+
+  candidates.clear();
+  for (const auto &[dist, idx] : scored_candidates) {
+    candidates.push_back(idx);
+  }
+
   std::sort(
       candidates.begin(), candidates.end(), [&](std::size_t a, std::size_t b) {
         return squared_euclidean_distance(training_data_[a].features, query) <
