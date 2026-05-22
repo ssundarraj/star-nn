@@ -7,10 +7,16 @@
 #include <iomanip>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace {
 
 using Clock = std::chrono::steady_clock;
+
+struct BenchmarkParams {
+  std::size_t n_trees;
+  std::size_t max_leaf_size;
+};
 
 double millis_since(Clock::time_point start) {
   const auto elapsed = Clock::now() - start;
@@ -32,8 +38,10 @@ std::string dataset_name(const std::string &train_path,
 
 int main(int argc, char **argv) {
   const std::size_t k = 5;
-  const std::size_t n_trees = 10;
-  const std::size_t max_leaf_size = 10;
+  const std::vector<BenchmarkParams> params = {
+      {5, 5},  {5, 10},  {5, 20},  {10, 5}, {10, 10},
+      {10, 20}, {20, 5}, {20, 10}, {20, 20},
+  };
   const std::string train_path = argc > 1 ? argv[1] : "../data/mnist_train.csv";
   const std::string test_path = argc > 2 ? argv[2] : "../data/mnist_test.csv";
 
@@ -66,29 +74,45 @@ int main(int argc, char **argv) {
             << " dims=" << train[0].features.size() << '\n';
   std::cout << "Load: " << load_ms << "ms\n";
 
-  std::cout << "Building Annoy index...\n";
-  start = Clock::now();
-  star_nn::AnnoyIndex annoy(n_trees, max_leaf_size);
-  annoy.build(train);
-  const auto annoy_build_ms = millis_since(start);
-
-  std::cout << "Running Annoy evaluation...\n";
-  start = Clock::now();
-  const auto annoy_accuracy = annoy.evaluate(test, k);
-  const auto annoy_eval_ms = millis_since(start);
-
-  std::cout << "Annoy: accuracy=" << annoy_accuracy * 100.0
-            << "% build=" << annoy_build_ms << "ms query/eval=" << annoy_eval_ms
-            << "ms\n";
-
   const std::filesystem::path results_path = "benchmarks/results.csv";
   std::filesystem::create_directories(results_path.parent_path());
   std::ofstream results(results_path);
   results << "dataset,train_rows,test_rows,dims,n_trees,max_leaf_size,k,"
-             "build_ms,eval_ms,accuracy\n";
-  results << dataset_name(train_path, test_path) << ',' << train.size() << ','
-          << test.size() << ',' << train[0].features.size() << ',' << n_trees
-          << ',' << max_leaf_size << ',' << k << ',' << annoy_build_ms << ','
-          << annoy_eval_ms << ',' << annoy_accuracy << '\n';
+             "build_ms,build_ms_per_tree,eval_ms,eval_ms_per_sample,"
+             "accuracy\n";
+
+  for (std::size_t i = 0; i < params.size(); ++i) {
+    const auto [n_trees, max_leaf_size] = params[i];
+    std::cout << "\nBenchmark " << (i + 1) << "/" << params.size()
+              << ": n_trees=" << n_trees
+              << " max_leaf_size=" << max_leaf_size << " k=" << k << '\n';
+
+    std::cout << "Building Annoy index...\n";
+    start = Clock::now();
+    star_nn::AnnoyIndex annoy(n_trees, max_leaf_size);
+    annoy.build(train);
+    const auto annoy_build_ms = millis_since(start);
+
+    std::cout << "Running Annoy evaluation...\n";
+    start = Clock::now();
+    const auto annoy_accuracy = annoy.evaluate(test, k);
+    const auto annoy_eval_ms = millis_since(start);
+    const auto build_ms_per_tree = annoy_build_ms / n_trees;
+    const auto eval_ms_per_sample = annoy_eval_ms / test.size();
+
+    std::cout << "Annoy: accuracy=" << annoy_accuracy * 100.0
+              << "% build=" << annoy_build_ms
+              << "ms build/tree=" << build_ms_per_tree
+              << "ms query/eval=" << annoy_eval_ms
+              << "ms eval/sample=" << eval_ms_per_sample << "ms\n";
+
+    results << dataset_name(train_path, test_path) << ',' << train.size() << ','
+            << test.size() << ',' << train[0].features.size() << ','
+            << n_trees << ',' << max_leaf_size << ',' << k << ','
+            << annoy_build_ms << ',' << build_ms_per_tree << ','
+            << annoy_eval_ms << ',' << eval_ms_per_sample << ','
+            << annoy_accuracy << '\n';
+  }
+
   std::cout << "Wrote latest benchmark results to " << results_path << '\n';
 }
