@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <iostream>
 #include <numeric>
 #include <random>
 #include <ranges>
@@ -67,7 +68,10 @@ AnnoyIndex::build_tree_(const std::vector<size_t> indices) {
   static std::mt19937 rng(std::random_device{}());
   std::uniform_int_distribution<std::size_t> dist(0, indices.size() - 1);
   const std::size_t pos_a = dist(rng);
-  const std::size_t pos_b = dist(rng);
+  std::size_t pos_b = dist(rng);
+  while (pos_b == pos_a) {
+    pos_b = dist(rng);
+  }
   const auto idx_a = indices[pos_a];
   const auto idx_b = indices[pos_b];
 
@@ -77,6 +81,13 @@ AnnoyIndex::build_tree_(const std::vector<size_t> indices) {
   const auto [normal, offset] = make_split_hyperplane(point_a, point_b);
   const auto [left_indices, right_indices] =
       split_over_hyperplane_(indices, normal, offset);
+
+  if (left_indices.empty() || right_indices.empty()) {
+    auto node = std::make_unique<Node>();
+    node->is_leaf = true;
+    node->indices = indices;
+    return node;
+  }
 
   auto left = build_tree_(left_indices);
   auto right = build_tree_(right_indices);
@@ -98,6 +109,7 @@ void AnnoyIndex::build(const Dataset &training_data) {
   std::iota(indices.begin(), indices.end(), 0);
 
   for (size_t i = 0; i < n_trees_; ++i) {
+    std::cout << "  building tree " << (i + 1) << "/" << n_trees_ << "...\n";
     auto root = build_tree_(indices);
     forest_.push_back(std::move(root));
   }
@@ -143,11 +155,18 @@ std::vector<std::size_t> AnnoyIndex::query(const Vector &query,
 
 double AnnoyIndex::evaluate(const Dataset &test_data, std::size_t k) const {
   std::size_t correct = 0;
+  const std::size_t progress_every = std::max<std::size_t>(1, test_data.size() / 20);
 
-  for (const auto &dp : test_data) {
+  for (std::size_t i = 0; i < test_data.size(); ++i) {
+    const auto &dp = test_data[i];
     const auto neighbors = query(dp.features, k);
     if (classify(neighbors, training_data_) == dp.label) {
       ++correct;
+    }
+
+    if ((i + 1) % progress_every == 0 || i + 1 == test_data.size()) {
+      std::cout << "  evaluated " << (i + 1) << "/" << test_data.size()
+                << " queries...\n";
     }
   }
 
