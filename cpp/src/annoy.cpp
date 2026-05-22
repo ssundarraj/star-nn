@@ -27,6 +27,9 @@ std::pair<Vector, double> make_split_hyperplane(const Vector &a,
                                                 const Vector &b) {
   Vector normal = std::vector<double>();
   Vector midpoint = std::vector<double>();
+  normal.reserve(a.size());
+  midpoint.reserve(a.size());
+
   for (const auto [ai, bi] : std::views::zip(a, b)) {
     normal.push_back(bi - ai);
     midpoint.push_back((ai + bi) / 2.0);
@@ -40,10 +43,12 @@ AnnoyIndex::AnnoyIndex(std::size_t n_trees, std::size_t max_leaf_size)
     : n_trees_(n_trees), max_leaf_size_(max_leaf_size) {}
 
 std::pair<std::vector<size_t>, std::vector<size_t>>
-AnnoyIndex::split_over_hyperplane_(const std::vector<size_t> indices,
-                                   Vector normal, double offset) {
+AnnoyIndex::split_over_hyperplane_(const std::vector<size_t> &indices,
+                                   const Vector &normal, double offset) {
   auto left = std::vector<size_t>();
   auto right = std::vector<size_t>();
+  left.reserve(indices.size());
+  right.reserve(indices.size());
 
   for (const auto idx : indices) {
     const auto &point = this->training_data_[idx].features;
@@ -57,7 +62,7 @@ AnnoyIndex::split_over_hyperplane_(const std::vector<size_t> indices,
 }
 
 std::unique_ptr<Node>
-AnnoyIndex::build_tree_(const std::vector<size_t> indices) {
+AnnoyIndex::build_tree_(const std::vector<size_t> &indices) {
   if (indices.size() <= this->max_leaf_size_) {
     auto node = std::make_unique<Node>();
     node->is_leaf = true;
@@ -94,7 +99,6 @@ AnnoyIndex::build_tree_(const std::vector<size_t> indices) {
 
   auto node = std::make_unique<Node>();
   node->is_leaf = false;
-  node->indices = indices;
   node->left = std::move(left);
   node->right = std::move(right);
   node->normal = normal;
@@ -116,7 +120,7 @@ void AnnoyIndex::build(const Dataset &training_data) {
 }
 
 std::vector<size_t> AnnoyIndex::query_tree_(const Node *tree,
-                                            const Vector query) const {
+                                            const Vector &query) const {
   if (tree->is_leaf)
     return tree->indices;
 
@@ -140,11 +144,11 @@ std::vector<std::size_t> AnnoyIndex::query(const Vector &query,
 
   std::vector<std::size_t> candidates(candidate_set.begin(),
                                       candidate_set.end());
-  std::sort(candidates.begin(), candidates.end(),
-            [&](std::size_t a, std::size_t b) {
-              return euclidean_distance(training_data_[a].features, query) <
-                     euclidean_distance(training_data_[b].features, query);
-            });
+  std::sort(
+      candidates.begin(), candidates.end(), [&](std::size_t a, std::size_t b) {
+        return squared_euclidean_distance(training_data_[a].features, query) <
+               squared_euclidean_distance(training_data_[b].features, query);
+      });
 
   if (candidates.size() > k) {
     candidates.resize(k);
@@ -155,7 +159,8 @@ std::vector<std::size_t> AnnoyIndex::query(const Vector &query,
 
 double AnnoyIndex::evaluate(const Dataset &test_data, std::size_t k) const {
   std::size_t correct = 0;
-  const std::size_t progress_every = std::max<std::size_t>(1, test_data.size() / 20);
+  const std::size_t progress_every =
+      std::max<std::size_t>(1, test_data.size() / 20);
 
   for (std::size_t i = 0; i < test_data.size(); ++i) {
     const auto &dp = test_data[i];

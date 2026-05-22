@@ -35,13 +35,13 @@ public:
   const std::vector<std::unique_ptr<Node>> &forest() const;
 
 private:
-  std::unique_ptr<Node> build_tree_(const std::vector<size_t> indices);
+  std::unique_ptr<Node> build_tree_(const std::vector<size_t> &indices);
 
   std::pair<std::vector<size_t>, std::vector<size_t>>
-  split_over_hyperplane_(const std::vector<size_t> indices, Vector normal,
-                         double offset);
+  split_over_hyperplane_(const std::vector<size_t> &indices,
+                         const Vector &normal, double offset);
 
-  std::vector<size_t> query_tree_(const Node *tree, const Vector query) const;
+  std::vector<size_t> query_tree_(const Node *tree, const Vector &query) const;
 
   std::size_t n_trees_;
   std::size_t max_leaf_size_;

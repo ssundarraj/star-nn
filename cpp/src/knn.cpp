@@ -16,6 +16,14 @@ double euclidean_distance(const Vector &a, const Vector &b) {
   return std::sqrt(d);
 }
 
+double squared_euclidean_distance(const Vector &a, const Vector &b) {
+  double d = 0.0;
+  for (auto [x, y] : std::views::zip(a, b)) {
+    d += std::pow(x - y, 2);
+  }
+  return d;
+}
+
 double manhattan_distance(const Vector &a, const Vector &b) {
   double d = 0.0;
   for (auto [x, y] : std::views::zip(a, b)) {

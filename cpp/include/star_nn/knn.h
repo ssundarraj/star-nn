@@ -8,6 +8,7 @@
 namespace star_nn {
 
 double euclidean_distance(const Vector &a, const Vector &b);
+double squared_euclidean_distance(const Vector &a, const Vector &b);
 double manhattan_distance(const Vector &a, const Vector &b);
 
 std::vector<std::size_t> find_k_nearest(const Vector &query,
