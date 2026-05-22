@@ -1,5 +1,5 @@
 CXX ?= c++
-CXXFLAGS := -std=c++23 -Wall -Wextra -pedantic -Iinclude
+CXXFLAGS ?= -std=c++23 -Wall -Wextra -pedantic -Iinclude -g -O2
 BUILD_DIR := build
 BUILD_STAMP := $(BUILD_DIR)/.dir
 

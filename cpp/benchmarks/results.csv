@@ -1,2 +1,2 @@
 dataset,train_rows,test_rows,dims,n_trees,max_leaf_size,k,build_ms,eval_ms,accuracy
-mnist,60000,10000,784,10,10,5,514953,659376,0.9604
+mnist,60000,10000,784,10,10,5,7947.13,8255.13,0.9584
