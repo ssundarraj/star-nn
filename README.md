@@ -16,4 +16,6 @@ make test
 
 `make test` is expected to fail until the C++ algorithm stubs are implemented.
 
+Benchmarks on Apple MacBook Pro with M1 Pro, 32GB memory.
+
 Tests and scaffolding written by Claude Code. 
