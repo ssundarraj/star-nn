@@ -2,11 +2,13 @@
 #include "star_nn/knn.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <iostream>
 #include <numeric>
 #include <random>
 #include <ranges>
+#include <span>
 #include <unordered_set>
 #include <vector>
 
@@ -15,6 +17,12 @@ namespace star_nn {
 using std::size_t;
 
 double dot(const Vector &a, const Vector &b) {
+  return dot(std::span<const double>{a}, std::span<const double>{b});
+}
+
+double dot(std::span<const double> a, std::span<const double> b) {
+  assert(a.size() == b.size());
+
   // a · b = Σ(a_i * b_i)
   double d = 0.0;
   for (const auto [ai, bi] : std::views::zip(a, b)) {
@@ -61,13 +69,22 @@ AnnoyIndex::split_over_hyperplane_(const std::vector<size_t> &indices,
   return {left, right};
 }
 
-std::unique_ptr<Node>
-AnnoyIndex::build_tree_(const std::vector<size_t> &indices) {
+std::size_t AnnoyIndex::build_tree_(const std::vector<size_t> &indices) {
   if (indices.size() <= this->max_leaf_size_) {
-    auto node = std::make_unique<Node>();
-    node->is_leaf = true;
-    node->indices = indices;
-    return node;
+    std::size_t leaf_item_offset = leaf_items_.size();
+    leaf_items_.insert(leaf_items_.end(), indices.begin(), indices.end());
+
+    auto node = DiskNode{
+        .left_index = -1,  // Leaf
+        .right_index = -1, // Leaf
+        .leaf_item_offset = leaf_item_offset,
+        .leaf_item_count = indices.size(),
+        .normal_offset = 0,
+        .hyperplane_offset = 0.0,
+    };
+
+    nodes_.push_back(node);
+    return nodes_.size() - 1;
   }
 
   static std::mt19937 rng(std::random_device{}());
@@ -88,26 +105,44 @@ AnnoyIndex::build_tree_(const std::vector<size_t> &indices) {
       split_over_hyperplane_(indices, normal, offset);
 
   if (left_indices.empty() || right_indices.empty()) {
-    auto node = std::make_unique<Node>();
-    node->is_leaf = true;
-    node->indices = indices;
-    return node;
+    std::size_t leaf_item_offset = leaf_items_.size();
+    leaf_items_.insert(leaf_items_.end(), indices.begin(), indices.end());
+
+    auto node = DiskNode{
+        .left_index = -1,  // Leaf
+        .right_index = -1, // Leaf
+        .leaf_item_offset = leaf_item_offset,
+        .leaf_item_count = indices.size(),
+        .normal_offset = 0,
+        .hyperplane_offset = 0.0,
+    };
+
+    nodes_.push_back(node);
+    return nodes_.size() - 1;
   }
 
-  auto left = build_tree_(left_indices);
-  auto right = build_tree_(right_indices);
+  const auto left = build_tree_(left_indices);
+  const auto right = build_tree_(right_indices);
 
-  auto node = std::make_unique<Node>();
-  node->is_leaf = false;
-  node->left = std::move(left);
-  node->right = std::move(right);
-  node->normal = normal;
-  node->offset = offset;
-  return node;
+  const auto normal_offset = normals_.size();
+  normals_.insert(normals_.end(), normal.begin(), normal.end());
+  auto node = DiskNode{
+      .left_index = static_cast<std::int64_t>(left),
+      .right_index = static_cast<std::int64_t>(right),
+
+      .leaf_item_offset = 0,
+      .leaf_item_count = 0,
+      .normal_offset = normal_offset,
+      .hyperplane_offset = offset,
+  };
+
+  nodes_.push_back(node);
+  return nodes_.size() - 1;
 }
 
 void AnnoyIndex::build(const Dataset &training_data) {
   this->training_data_ = training_data;
+  this->dims_ = training_data_[0].features.size();
 
   std::vector<std::size_t> indices(training_data_.size());
   std::iota(indices.begin(), indices.end(), 0);
@@ -115,30 +150,37 @@ void AnnoyIndex::build(const Dataset &training_data) {
   for (size_t i = 0; i < n_trees_; ++i) {
     std::cout << "  building tree " << (i + 1) << "/" << n_trees_ << "...\n";
     auto root = build_tree_(indices);
-    forest_.push_back(std::move(root));
+    forest_.push_back(root);
   }
 }
 
-std::vector<size_t> AnnoyIndex::query_tree_(const Node *tree,
-                                            const Vector &query) const {
-  if (tree->is_leaf)
-    return tree->indices;
+std::span<const size_t> AnnoyIndex::query_tree_(const size_t node_idx,
+                                                const Vector &query) const {
+  DiskNode tree = nodes_[node_idx];
+  if (tree.left_index == -1 && tree.right_index == -1) {
+    return std::span{
+        leaf_items_.data() + tree.leaf_item_offset,
+        tree.leaf_item_count,
+    };
+  }
 
-  const auto is_left = (dot(tree->normal, query) - tree->offset) <= 0;
+  const auto normal = std::span{
+      normals_.data() + tree.normal_offset,
+      dims_,
+  };
+  const auto is_left = (dot(normal, query) - tree.hyperplane_offset) <= 0;
   if (is_left)
-    return query_tree_(tree->left.get(), query);
+    return query_tree_(tree.left_index, query);
   else
-    return query_tree_(tree->right.get(), query);
+    return query_tree_(tree.right_index, query);
 }
 
 std::vector<std::size_t> AnnoyIndex::query(const Vector &query,
                                            std::size_t k) const {
-  (void)query;
-  (void)k;
   std::unordered_set<std::size_t> candidate_set;
 
-  for (const auto &tree : forest_) {
-    auto indices = query_tree_(tree.get(), query);
+  for (const auto root_idx : forest_) {
+    auto indices = query_tree_(root_idx, query);
     candidate_set.insert(indices.begin(), indices.end());
   }
 
@@ -193,8 +235,6 @@ std::size_t AnnoyIndex::n_trees() const { return n_trees_; }
 
 std::size_t AnnoyIndex::max_leaf_size() const { return max_leaf_size_; }
 
-const std::vector<std::unique_ptr<Node>> &AnnoyIndex::forest() const {
-  return forest_;
-}
+const std::vector<std::size_t> &AnnoyIndex::forest() const { return forest_; }
 
 } // namespace star_nn
