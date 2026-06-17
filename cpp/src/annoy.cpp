@@ -10,6 +10,7 @@
 #include <random>
 #include <ranges>
 #include <span>
+#include <stdexcept>
 #include <unordered_set>
 #include <vector>
 
@@ -164,6 +165,9 @@ void write_vector(std::ofstream &out, const std::vector<T> &v) {
 template <typename T> void read_vector(std::ifstream &in, std::vector<T> &v) {
   in.read(reinterpret_cast<char *>(v.data()),
           static_cast<std::streamsize>(v.size() * sizeof(T)));
+  if (!in) {
+    throw std::runtime_error("failed to read Annoy index section");
+  }
 }
 
 void AnnoyIndex::save(const std::string &path) const {
@@ -189,9 +193,27 @@ void AnnoyIndex::save(const std::string &path) const {
 }
 void AnnoyIndex::load(const std::string &path, const Dataset &training_data) {
   std::ifstream in(path, std::ios::binary);
+  if (!in) {
+    throw std::runtime_error("failed to open Annoy index file: " + path);
+  }
 
   AnnoyFileHeader header;
   in.read(reinterpret_cast<char *>(&header), sizeof(header));
+  if (!in) {
+    throw std::runtime_error("failed to read Annoy index header");
+  }
+
+  if (header.version != 1) {
+    throw std::runtime_error("unsupported Annoy index version");
+  }
+
+  if (training_data.empty()) {
+    throw std::runtime_error("cannot load Annoy index with empty training data");
+  }
+
+  if (header.dims != training_data[0].features.size()) {
+    throw std::runtime_error("Annoy index dimensions do not match training data");
+  }
 
   dims_ = header.dims;
   n_trees_ = header.n_trees;
