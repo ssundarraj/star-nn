@@ -73,8 +73,9 @@ AnnoyIndex::split_over_hyperplane_(const std::vector<size_t> &indices,
 
 std::size_t AnnoyIndex::build_tree_(const std::vector<size_t> &indices) {
   if (indices.size() <= this->max_leaf_size_) {
-    std::size_t leaf_item_offset = leaf_items_.size();
-    leaf_items_.insert(leaf_items_.end(), indices.begin(), indices.end());
+    std::size_t leaf_item_offset = owned_leaf_items_.size();
+    owned_leaf_items_.insert(owned_leaf_items_.end(), indices.begin(),
+                             indices.end());
 
     auto node = DiskNode{
         .left_index = -1,  // Leaf
@@ -85,8 +86,8 @@ std::size_t AnnoyIndex::build_tree_(const std::vector<size_t> &indices) {
         .hyperplane_offset = 0.0,
     };
 
-    nodes_.push_back(node);
-    return nodes_.size() - 1;
+    owned_nodes_.push_back(node);
+    return owned_nodes_.size() - 1;
   }
 
   static std::mt19937 rng(std::random_device{}());
@@ -107,8 +108,9 @@ std::size_t AnnoyIndex::build_tree_(const std::vector<size_t> &indices) {
       split_over_hyperplane_(indices, normal, offset);
 
   if (left_indices.empty() || right_indices.empty()) {
-    std::size_t leaf_item_offset = leaf_items_.size();
-    leaf_items_.insert(leaf_items_.end(), indices.begin(), indices.end());
+    std::size_t leaf_item_offset = owned_leaf_items_.size();
+    owned_leaf_items_.insert(owned_leaf_items_.end(), indices.begin(),
+                             indices.end());
 
     auto node = DiskNode{
         .left_index = -1,  // Leaf
@@ -119,15 +121,15 @@ std::size_t AnnoyIndex::build_tree_(const std::vector<size_t> &indices) {
         .hyperplane_offset = 0.0,
     };
 
-    nodes_.push_back(node);
-    return nodes_.size() - 1;
+    owned_nodes_.push_back(node);
+    return owned_nodes_.size() - 1;
   }
 
   const auto left = build_tree_(left_indices);
   const auto right = build_tree_(right_indices);
 
-  const auto normal_offset = normals_.size();
-  normals_.insert(normals_.end(), normal.begin(), normal.end());
+  const auto normal_offset = owned_normals_.size();
+  owned_normals_.insert(owned_normals_.end(), normal.begin(), normal.end());
   auto node = DiskNode{
       .left_index = static_cast<std::int64_t>(left),
       .right_index = static_cast<std::int64_t>(right),
@@ -138,11 +140,16 @@ std::size_t AnnoyIndex::build_tree_(const std::vector<size_t> &indices) {
       .hyperplane_offset = offset,
   };
 
-  nodes_.push_back(node);
-  return nodes_.size() - 1;
+  owned_nodes_.push_back(node);
+  return owned_nodes_.size() - 1;
 }
 
 void AnnoyIndex::build(const Dataset &training_data) {
+  owned_nodes_.clear();
+  owned_forest_.clear();
+  owned_leaf_items_.clear();
+  owned_normals_.clear();
+
   this->training_data_ = training_data;
   this->dims_ = training_data_[0].features.size();
 
@@ -152,8 +159,13 @@ void AnnoyIndex::build(const Dataset &training_data) {
   for (size_t i = 0; i < n_trees_; ++i) {
     std::cout << "  building tree " << (i + 1) << "/" << n_trees_ << "...\n";
     auto root = build_tree_(indices);
-    forest_.push_back(root);
+    owned_forest_.push_back(root);
   }
+
+  nodes_ = owned_nodes_;
+  forest_ = owned_forest_;
+  leaf_items_ = owned_leaf_items_;
+  normals_ = owned_normals_;
 }
 
 template <typename T>
@@ -168,6 +180,12 @@ template <typename T> void read_vector(std::ifstream &in, std::vector<T> &v) {
   if (!in) {
     throw std::runtime_error("failed to read Annoy index section");
   }
+}
+
+template <typename T>
+void write_span(std::ofstream &out, std::span<const T> v) {
+  out.write(reinterpret_cast<const char *>(v.data()),
+            static_cast<std::streamsize>(v.size() * sizeof(T)));
 }
 
 void AnnoyIndex::save(const std::string &path) const {
@@ -186,10 +204,10 @@ void AnnoyIndex::save(const std::string &path) const {
 
   out.write(reinterpret_cast<const char *>(&header), sizeof(header));
 
-  write_vector(out, forest_);
-  write_vector(out, nodes_);
-  write_vector(out, leaf_items_);
-  write_vector(out, normals_);
+  write_span(out, forest_);
+  write_span(out, nodes_);
+  write_span(out, leaf_items_);
+  write_span(out, normals_);
 }
 void AnnoyIndex::load(const std::string &path, const Dataset &training_data) {
   std::ifstream in(path, std::ios::binary);
@@ -220,15 +238,20 @@ void AnnoyIndex::load(const std::string &path, const Dataset &training_data) {
   max_leaf_size_ = header.max_leaf_size;
   training_data_ = training_data;
 
-  forest_.resize(header.forest_count);
-  nodes_.resize(header.node_count);
-  leaf_items_.resize(header.leaf_item_count);
-  normals_.resize(header.normal_count);
+  owned_forest_.resize(header.forest_count);
+  owned_nodes_.resize(header.node_count);
+  owned_leaf_items_.resize(header.leaf_item_count);
+  owned_normals_.resize(header.normal_count);
 
-  read_vector(in, forest_);
-  read_vector(in, nodes_);
-  read_vector(in, leaf_items_);
-  read_vector(in, normals_);
+  read_vector(in, owned_forest_);
+  read_vector(in, owned_nodes_);
+  read_vector(in, owned_leaf_items_);
+  read_vector(in, owned_normals_);
+
+  forest_ = owned_forest_;
+  nodes_ = owned_nodes_;
+  leaf_items_ = owned_leaf_items_;
+  normals_ = owned_normals_;
 }
 
 std::span<const size_t> AnnoyIndex::query_tree_(const size_t node_idx,
@@ -312,6 +335,6 @@ std::size_t AnnoyIndex::n_trees() const { return n_trees_; }
 
 std::size_t AnnoyIndex::max_leaf_size() const { return max_leaf_size_; }
 
-const std::vector<std::size_t> &AnnoyIndex::forest() const { return forest_; }
+std::span<const std::size_t> AnnoyIndex::forest() const { return forest_; }
 
 } // namespace star_nn

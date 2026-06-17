@@ -51,13 +51,18 @@ public:
   std::size_t n_trees() const;
   std::size_t max_leaf_size() const;
 
-  const std::vector<size_t> &forest() const;
+  std::span<const std::size_t> forest() const;
 
 private:
-  std::vector<DiskNode> nodes_;
-  std::vector<std::size_t> forest_;     // index of root nodes
-  std::vector<std::size_t> leaf_items_; // index of items in leaf nodes
-  std::vector<double> normals_;
+  std::vector<DiskNode> owned_nodes_;
+  std::vector<std::size_t> owned_forest_;
+  std::vector<std::size_t> owned_leaf_items_;
+  std::vector<double> owned_normals_;
+
+  std::span<const DiskNode> nodes_;
+  std::span<const std::size_t> forest_;     // index of root nodes
+  std::span<const std::size_t> leaf_items_; // index of items in leaf nodes
+  std::span<const double> normals_;
 
   std::size_t dims_ = 0;
 
