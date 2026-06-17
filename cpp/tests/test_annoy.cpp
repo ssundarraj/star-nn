@@ -1,5 +1,6 @@
 #include <cassert>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 
 #include "star_nn/annoy.h"
@@ -47,6 +48,19 @@ int main() {
   for (const auto neighbor : neighbors_b) {
     assert(neighbor >= 5);
   }
+
+  std::cout << "Testing Annoy save/load...\n";
+  const std::filesystem::path index_path = "/tmp/star_nn_annoy_test.bin";
+  index.save(index_path.string());
+  assert(std::filesystem::exists(index_path));
+  assert(std::filesystem::file_size(index_path) > 0);
+
+  star_nn::AnnoyIndex loaded;
+  loaded.load(index_path.string(), data);
+  assert(loaded.n_trees() == index.n_trees());
+  assert(loaded.max_leaf_size() == index.max_leaf_size());
+  assert(loaded.query({0.05, 0.05}, 3) == neighbors_a);
+  assert(loaded.query({10.05, 10.05}, 3) == neighbors_b);
 
   std::cout << "Annoy tests passed.\n";
 }

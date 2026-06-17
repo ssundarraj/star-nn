@@ -3,3 +3,4 @@ __pycache__/
 .venv/
 cpp/build/
 data/mnist_*.csv
+cpp/benchmarks/*.bin

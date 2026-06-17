@@ -78,7 +78,8 @@ int main(int argc, char **argv) {
   std::filesystem::create_directories(results_path.parent_path());
   std::ofstream results(results_path);
   results << "dataset,train_rows,test_rows,dims,n_trees,max_leaf_size,k,"
-             "build_ms,build_ms_per_tree,eval_ms,eval_ms_per_sample,"
+             "build_ms,build_ms_per_tree,save_ms,load_index_ms,index_bytes,"
+             "eval_ms,eval_ms_per_sample,"
              "accuracy\n";
 
   for (std::size_t i = 0; i < params.size(); ++i) {
@@ -93,9 +94,25 @@ int main(int argc, char **argv) {
     annoy.build(train);
     const auto annoy_build_ms = millis_since(start);
 
-    std::cout << "Running Annoy evaluation...\n";
+    const std::filesystem::path index_path =
+        "benchmarks/annoy_index_" + std::to_string(n_trees) + "_" +
+        std::to_string(max_leaf_size) + ".bin";
+
+    std::cout << "Saving Annoy index...\n";
     start = Clock::now();
-    const auto annoy_accuracy = annoy.evaluate(test, k);
+    annoy.save(index_path.string());
+    const auto annoy_save_ms = millis_since(start);
+    const auto index_bytes = std::filesystem::file_size(index_path);
+
+    std::cout << "Loading Annoy index...\n";
+    start = Clock::now();
+    star_nn::AnnoyIndex loaded_annoy;
+    loaded_annoy.load(index_path.string(), train);
+    const auto annoy_load_index_ms = millis_since(start);
+
+    std::cout << "Running Annoy evaluation from loaded index...\n";
+    start = Clock::now();
+    const auto annoy_accuracy = loaded_annoy.evaluate(test, k);
     const auto annoy_eval_ms = millis_since(start);
     const auto build_ms_per_tree = annoy_build_ms / n_trees;
     const auto eval_ms_per_sample = annoy_eval_ms / test.size();
@@ -103,13 +120,18 @@ int main(int argc, char **argv) {
     std::cout << "Annoy: accuracy=" << annoy_accuracy * 100.0
               << "% build=" << annoy_build_ms
               << "ms build/tree=" << build_ms_per_tree
-              << "ms query/eval=" << annoy_eval_ms
+              << "ms save=" << annoy_save_ms
+              << "ms load/index=" << annoy_load_index_ms
+              << "ms index_bytes=" << index_bytes
+              << " query/eval=" << annoy_eval_ms
               << "ms eval/sample=" << eval_ms_per_sample << "ms\n";
 
     results << dataset_name(train_path, test_path) << ',' << train.size() << ','
             << test.size() << ',' << train[0].features.size() << ','
             << n_trees << ',' << max_leaf_size << ',' << k << ','
             << annoy_build_ms << ',' << build_ms_per_tree << ','
+            << annoy_save_ms << ',' << annoy_load_index_ms << ','
+            << index_bytes << ','
             << annoy_eval_ms << ',' << eval_ms_per_sample << ','
             << annoy_accuracy << '\n';
   }

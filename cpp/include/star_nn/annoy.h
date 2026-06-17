@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -20,6 +21,17 @@ struct DiskNode {
   double hyperplane_offset;  // hyperplane offset
 };
 
+struct AnnoyFileHeader {
+  std::uint64_t version;
+  std::uint64_t dims;
+  std::uint64_t n_trees;
+  std::uint64_t max_leaf_size;
+  std::uint64_t forest_count;
+  std::uint64_t node_count;
+  std::uint64_t leaf_item_count;
+  std::uint64_t normal_count;
+};
+
 double dot(const Vector &a, const Vector &b);
 double dot(std::span<const double> a, std::span<const double> b);
 std::pair<Vector, double> make_split_hyperplane(const Vector &point_a,
@@ -30,6 +42,9 @@ public:
   AnnoyIndex(std::size_t n_trees = 10, std::size_t max_leaf_size = 10);
 
   void build(const Dataset &training_data);
+  void save(const std::string &path) const;
+  void load(const std::string &path, const Dataset &training_data);
+
   std::vector<std::size_t> query(const Vector &query, std::size_t k) const;
   double evaluate(const Dataset &test_data, std::size_t k) const;
 

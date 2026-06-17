@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
+#include <fstream>
 #include <iostream>
 #include <numeric>
 #include <random>
@@ -152,6 +153,60 @@ void AnnoyIndex::build(const Dataset &training_data) {
     auto root = build_tree_(indices);
     forest_.push_back(root);
   }
+}
+
+template <typename T>
+void write_vector(std::ofstream &out, const std::vector<T> &v) {
+  out.write(reinterpret_cast<const char *>(v.data()),
+            static_cast<std::streamsize>(v.size() * sizeof(T)));
+}
+
+template <typename T> void read_vector(std::ifstream &in, std::vector<T> &v) {
+  in.read(reinterpret_cast<char *>(v.data()),
+          static_cast<std::streamsize>(v.size() * sizeof(T)));
+}
+
+void AnnoyIndex::save(const std::string &path) const {
+  std::ofstream out(path, std::ios::binary);
+
+  AnnoyFileHeader header = {
+      .version = 1,
+      .dims = dims_,
+      .n_trees = n_trees_,
+      .max_leaf_size = max_leaf_size_,
+      .forest_count = forest_.size(),
+      .node_count = nodes_.size(),
+      .leaf_item_count = leaf_items_.size(),
+      .normal_count = normals_.size(),
+  };
+
+  out.write(reinterpret_cast<const char *>(&header), sizeof(header));
+
+  write_vector(out, forest_);
+  write_vector(out, nodes_);
+  write_vector(out, leaf_items_);
+  write_vector(out, normals_);
+}
+void AnnoyIndex::load(const std::string &path, const Dataset &training_data) {
+  std::ifstream in(path, std::ios::binary);
+
+  AnnoyFileHeader header;
+  in.read(reinterpret_cast<char *>(&header), sizeof(header));
+
+  dims_ = header.dims;
+  n_trees_ = header.n_trees;
+  max_leaf_size_ = header.max_leaf_size;
+  training_data_ = training_data;
+
+  forest_.resize(header.forest_count);
+  nodes_.resize(header.node_count);
+  leaf_items_.resize(header.leaf_item_count);
+  normals_.resize(header.normal_count);
+
+  read_vector(in, forest_);
+  read_vector(in, nodes_);
+  read_vector(in, leaf_items_);
+  read_vector(in, normals_);
 }
 
 std::span<const size_t> AnnoyIndex::query_tree_(const size_t node_idx,
