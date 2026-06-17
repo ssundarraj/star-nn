@@ -62,5 +62,13 @@ int main() {
   assert(loaded.query({0.05, 0.05}, 3) == neighbors_a);
   assert(loaded.query({10.05, 10.05}, 3) == neighbors_b);
 
+  std::cout << "Testing Annoy mmap load...\n";
+  star_nn::AnnoyIndex mapped;
+  mapped.load_mmap(index_path.string(), data);
+  assert(mapped.n_trees() == index.n_trees());
+  assert(mapped.max_leaf_size() == index.max_leaf_size());
+  assert(mapped.query({0.05, 0.05}, 3) == neighbors_a);
+  assert(mapped.query({10.05, 10.05}, 3) == neighbors_b);
+
   std::cout << "Annoy tests passed.\n";
 }

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
+#include <fcntl.h>
 #include <fstream>
 #include <iostream>
 #include <numeric>
@@ -11,6 +12,9 @@
 #include <ranges>
 #include <span>
 #include <stdexcept>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <unordered_set>
 #include <vector>
 
@@ -51,6 +55,12 @@ std::pair<Vector, double> make_split_hyperplane(const Vector &a,
 
 AnnoyIndex::AnnoyIndex(std::size_t n_trees, std::size_t max_leaf_size)
     : n_trees_(n_trees), max_leaf_size_(max_leaf_size) {}
+
+AnnoyIndex::~AnnoyIndex() {
+  if (mapped_data_ != nullptr) {
+    munmap(mapped_data_, mapped_size_);
+  }
+}
 
 std::pair<std::vector<size_t>, std::vector<size_t>>
 AnnoyIndex::split_over_hyperplane_(const std::vector<size_t> &indices,
@@ -209,6 +219,7 @@ void AnnoyIndex::save(const std::string &path) const {
   write_span(out, leaf_items_);
   write_span(out, normals_);
 }
+
 void AnnoyIndex::load(const std::string &path, const Dataset &training_data) {
   std::ifstream in(path, std::ios::binary);
   if (!in) {
@@ -226,11 +237,13 @@ void AnnoyIndex::load(const std::string &path, const Dataset &training_data) {
   }
 
   if (training_data.empty()) {
-    throw std::runtime_error("cannot load Annoy index with empty training data");
+    throw std::runtime_error(
+        "cannot load Annoy index with empty training data");
   }
 
   if (header.dims != training_data[0].features.size()) {
-    throw std::runtime_error("Annoy index dimensions do not match training data");
+    throw std::runtime_error(
+        "Annoy index dimensions do not match training data");
   }
 
   dims_ = header.dims;
@@ -252,6 +265,51 @@ void AnnoyIndex::load(const std::string &path, const Dataset &training_data) {
   nodes_ = owned_nodes_;
   leaf_items_ = owned_leaf_items_;
   normals_ = owned_normals_;
+}
+
+void AnnoyIndex::load_mmap(const std::string &path,
+                           const Dataset &training_data) {
+  int fd = open(path.c_str(), O_RDONLY);
+
+  struct stat st;
+  fstat(fd, &st);
+  mapped_size_ = st.st_size;
+
+  mapped_data_ = mmap(nullptr, mapped_size_, PROT_READ, MAP_PRIVATE, fd, 0);
+  close(fd);
+
+  if (mapped_data_ == MAP_FAILED) {
+    mapped_data_ = nullptr;
+    throw std::runtime_error("mmap failed");
+  }
+
+  auto *header = reinterpret_cast<const AnnoyFileHeader *>(mapped_data_);
+  // TODO: Validate header and other stuff
+
+  const char *cursor = static_cast<const char *>(mapped_data_);
+  cursor += sizeof(AnnoyFileHeader);
+
+  forest_ = std::span(reinterpret_cast<const std::size_t *>(cursor),
+                      header->forest_count);
+  cursor += header->forest_count * sizeof(std::size_t);
+
+  nodes_ =
+      std::span(reinterpret_cast<const DiskNode *>(cursor), header->node_count);
+  cursor += header->node_count * sizeof(DiskNode);
+
+  leaf_items_ = std::span(reinterpret_cast<const std::size_t *>(cursor),
+                          header->leaf_item_count);
+  cursor += header->leaf_item_count * sizeof(std::size_t);
+
+  normals_ =
+      std::span(reinterpret_cast<const double *>(cursor), header->normal_count);
+
+  // Also set metadata :
+
+  dims_ = header->dims;
+  n_trees_ = header->n_trees;
+  max_leaf_size_ = header->max_leaf_size;
+  training_data_ = training_data;
 }
 
 std::span<const size_t> AnnoyIndex::query_tree_(const size_t node_idx,

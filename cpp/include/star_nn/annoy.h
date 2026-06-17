@@ -40,10 +40,12 @@ std::pair<Vector, double> make_split_hyperplane(const Vector &point_a,
 class AnnoyIndex {
 public:
   AnnoyIndex(std::size_t n_trees = 10, std::size_t max_leaf_size = 10);
+  ~AnnoyIndex();
 
   void build(const Dataset &training_data);
   void save(const std::string &path) const;
   void load(const std::string &path, const Dataset &training_data);
+  void load_mmap(const std::string &path, const Dataset &training_data);
 
   std::vector<std::size_t> query(const Vector &query, std::size_t k) const;
   double evaluate(const Dataset &test_data, std::size_t k) const;
@@ -58,6 +60,9 @@ private:
   std::vector<std::size_t> owned_forest_;
   std::vector<std::size_t> owned_leaf_items_;
   std::vector<double> owned_normals_;
+
+  void *mapped_data_ = nullptr;
+  std::size_t mapped_size_ = 0;
 
   std::span<const DiskNode> nodes_;
   std::span<const std::size_t> forest_;     // index of root nodes

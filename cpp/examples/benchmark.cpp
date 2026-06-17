@@ -79,7 +79,8 @@ int main(int argc, char **argv) {
   std::ofstream results(results_path);
   results << "dataset,train_rows,test_rows,dims,n_trees,max_leaf_size,k,"
              "build_ms,build_ms_per_tree,save_ms,load_index_ms,index_bytes,"
-             "eval_ms,eval_ms_per_sample,"
+             "eval_ms,eval_ms_per_sample,mmap_load_ms,mmap_eval_ms,"
+             "mmap_eval_ms_per_sample,mmap_accuracy,"
              "accuracy\n";
 
   for (std::size_t i = 0; i < params.size(); ++i) {
@@ -110,12 +111,25 @@ int main(int argc, char **argv) {
     loaded_annoy.load(index_path.string(), train);
     const auto annoy_load_index_ms = millis_since(start);
 
+    std::cout << "Memory-mapping Annoy index...\n";
+    start = Clock::now();
+    star_nn::AnnoyIndex mmap_annoy;
+    mmap_annoy.load_mmap(index_path.string(), train);
+    const auto annoy_mmap_load_ms = millis_since(start);
+
     std::cout << "Running Annoy evaluation from loaded index...\n";
     start = Clock::now();
     const auto annoy_accuracy = loaded_annoy.evaluate(test, k);
     const auto annoy_eval_ms = millis_since(start);
+
+    std::cout << "Running Annoy evaluation from mmap index...\n";
+    start = Clock::now();
+    const auto annoy_mmap_accuracy = mmap_annoy.evaluate(test, k);
+    const auto annoy_mmap_eval_ms = millis_since(start);
+
     const auto build_ms_per_tree = annoy_build_ms / n_trees;
     const auto eval_ms_per_sample = annoy_eval_ms / test.size();
+    const auto mmap_eval_ms_per_sample = annoy_mmap_eval_ms / test.size();
 
     std::cout << "Annoy: accuracy=" << annoy_accuracy * 100.0
               << "% build=" << annoy_build_ms
@@ -124,7 +138,12 @@ int main(int argc, char **argv) {
               << "ms load/index=" << annoy_load_index_ms
               << "ms index_bytes=" << index_bytes
               << " query/eval=" << annoy_eval_ms
-              << "ms eval/sample=" << eval_ms_per_sample << "ms\n";
+              << "ms eval/sample=" << eval_ms_per_sample
+              << "ms mmap_load=" << annoy_mmap_load_ms
+              << "ms mmap_eval=" << annoy_mmap_eval_ms
+              << "ms mmap_eval/sample=" << mmap_eval_ms_per_sample
+              << "ms mmap_accuracy=" << annoy_mmap_accuracy * 100.0
+              << "%\n";
 
     results << dataset_name(train_path, test_path) << ',' << train.size() << ','
             << test.size() << ',' << train[0].features.size() << ','
@@ -133,6 +152,8 @@ int main(int argc, char **argv) {
             << annoy_save_ms << ',' << annoy_load_index_ms << ','
             << index_bytes << ','
             << annoy_eval_ms << ',' << eval_ms_per_sample << ','
+            << annoy_mmap_load_ms << ',' << annoy_mmap_eval_ms << ','
+            << mmap_eval_ms_per_sample << ',' << annoy_mmap_accuracy << ','
             << annoy_accuracy << '\n';
   }
 
